@@ -9,6 +9,7 @@
 
 use std::marker::PhantomData;
 use std::iter::Iterator;
+use std::mem::transmute;
 use std::ops::{Index, IndexMut};
 
 use derive_deref_rs::Deref;
@@ -237,6 +238,13 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 			mark: PhantomData,
 		}
 	}
+	pub fn iter_mut<'a>(&self, container: &'a mut C) -> IterMut<'a, K, T, C> {
+		IterMut{
+			next: self.head,
+			container: container,
+			mark: PhantomData,
+		}
+	}
 
 	pub fn keys<'a>(&self, container: &'a C) -> KeysIter<'a, K, T, C> {
 		KeysIter{
@@ -363,7 +371,7 @@ pub struct Iter<'a, K: Null + Copy + 'static, T: 'a, C: 'a + Index<K, Output = N
 impl<'a, K: Null + Copy + 'static, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Output = Node<K, T>>> Iterator for Iter<'a, K, T, C> {
 	type Item = (K, &'a T);
 
-	fn next(&mut self) -> Option<(K, &'a T)> {
+	fn next(&mut self) -> Option<Self::Item> {
 		if self.next.is_null() {
 			return None;
 		}
@@ -371,6 +379,28 @@ impl<'a, K: Null + Copy + 'static, T, C: Index<K, Output = Node<K, T>> + IndexMu
 		let node = &self.container[next];
 		self.next = node.next;
 		Some((next, &node.elem))
+	}
+}
+
+pub struct IterMut<'a, K: Null + Copy + 'static, T: 'a, C: 'a + Index<K, Output = Node<K, T>> + IndexMut<K, Output = Node<K, T>>> {
+	next: K,
+	container: &'a mut C,
+	mark: PhantomData<T>
+}
+
+impl<'a, K: Null + Copy + 'static, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Output = Node<K, T>>> Iterator for IterMut<'a, K, T, C> {
+	type Item = (K, &'a mut T);
+
+	fn next(&mut self) -> Option<Self::Item> {
+		if self.next.is_null() {
+			return None;
+		}
+		let next = self.next;
+		let node = &mut self.container[next];
+		self.next = node.next;
+		Some((next, unsafe {
+			transmute(&mut node.elem)
+		}))
 	}
 }
 
