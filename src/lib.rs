@@ -46,18 +46,89 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 	}
 
 	/// 取到头部节点
+	#[inline]
 	pub fn head(&self) -> K {
 		self.head
 	}
 
-	// 取到尾部节点
+	/// 取到尾部节点
+	#[inline]
 	pub fn tail(&self) -> K {
 		self.tail
 	}
 
-	// 取到链表长度
+	/// 是否为空
+	#[inline]
+	pub fn is_empty(&self) -> bool {
+		self.head.is_null()
+	}
+
+	/// 取到链表长度
 	pub fn len(&self) -> usize {
 		self.len
+	}
+
+	/// 从`other`中移除所有元素，并追加到当前列表的尾部
+	/// let mut map: SlotMap<DefaultKey, Node<DefaultKey, usize>>  = SlotMap::default();
+	///
+	/// # Examples
+    ///
+    /// ```
+	/// let mut link_list1 = LinkList::new();
+	/// let k1 = map.insert(Node::new(1));
+	/// link_list1.link_before(k1, Key::null(), &mut map);
+	/// let k2 = map.insert(Node::new(2));
+	/// link_list1.link_before(k2, Key::null(), &mut map);
+	///
+	///
+	/// let mut link_list2 = LinkList::new();
+	/// let k3 = map.insert(Node::new(3));
+	/// link_list2.link_before(k3, Key::null(), &mut map);
+	/// let k4 = map.insert(Node::new(4));
+	/// link_list2.link_before(k4, Key::null(), &mut map);
+	///
+	/// link_list1.append(&mut link_list2, &mut map);
+	///
+	/// let mut iter = link_list1.keys(&mut map);
+	/// assert_eq!(iter.next(), Some(k1));
+	/// assert_eq!(iter.next(), Some(k2));
+	/// assert_eq!(iter.next(), Some(k3));
+	/// assert_eq!(iter.next(), Some(k4));
+	///
+	/// let mut iter = link_list2.keys(&mut map);
+	/// assert_eq!(iter.next(), None);
+	/// ```
+	pub fn append(&mut self, other: &mut LinkList<K, T, C>, container: &mut C) {
+		// debug版本中，检查next_key是否是当前链表中的节点, 检查prev_key是否是old_link中的节点
+		match self.tail.is_null() {
+            true => std::mem::swap(self, other),
+            false => {
+                // `as_mut` is okay here because we have exclusive access to the entirety
+                // of both lists.
+				let other_head = std::mem::replace(&mut other.head, K::null());
+
+				// 在debug版本中， 修正节点的link_list版本
+				#[cfg(debug_assertions)]
+				{
+					let mut head = other_head;
+					while !head.is_null() {
+						let node = &mut container[head];
+						node.link_version = self.link_version;
+						head = node.next();
+					}
+				}
+				
+
+                if !other_head.is_null() {
+
+					container[self.tail].next = other_head;
+					container[other_head].prev = self.tail;
+
+                    self.tail = std::mem::replace(&mut other.tail, K::null());
+                    self.len += std::mem::replace(&mut other.len, 0);
+                }
+            }
+        }
 	}
 
 	pub fn link_before_from(&mut self, link_key: K, anchor_key: K, container: &mut C, old_link: &mut Self) {
@@ -450,6 +521,35 @@ mod test {
 		assert_eq!(DefaultKey::null(), link_list.tail());
 		assert_eq!(0, link_list.len());
 
+	}
+
+	#[test]
+	fn test_append() {
+		let mut map: SlotMap<DefaultKey, Node<DefaultKey, usize>>  = SlotMap::default();
+
+		let mut link_list1 = LinkList::new();
+		let k1 = map.insert(Node::new(1));
+		link_list1.link_before(k1, Key::null(), &mut map);
+		let k2 = map.insert(Node::new(2));
+		link_list1.link_before(k2, Key::null(), &mut map);
+
+
+		let mut link_list2 = LinkList::new();
+		let k3 = map.insert(Node::new(3));
+		link_list2.link_before(k3, Key::null(), &mut map);
+		let k4 = map.insert(Node::new(4));
+		link_list2.link_before(k4, Key::null(), &mut map);
+
+		link_list1.append(&mut link_list2, &mut map);
+
+		let mut iter = link_list1.keys(&mut map);
+		assert_eq!(iter.next(), Some(k1));
+		assert_eq!(iter.next(), Some(k2));
+		assert_eq!(iter.next(), Some(k3));
+		assert_eq!(iter.next(), Some(k4));
+
+		let mut iter = link_list2.keys(&mut map);
+		assert_eq!(iter.next(), None);
 	}
 }
 
