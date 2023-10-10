@@ -9,7 +9,7 @@
 
 use std::marker::PhantomData;
 use std::iter::Iterator;
-use std::mem::transmute;
+use std::mem::{transmute, replace};
 use std::ops::{Index, IndexMut};
 
 use derive_deref_rs::Deref;
@@ -35,12 +35,15 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 
 impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Output = Node<K, T>>> LinkList<K, T, C> {
 	pub fn new() -> Self {
+		#[cfg(debug_assertions)]
 		let mut buf = [0u8; 4];
+		#[cfg(debug_assertions)]
 		getrandom::getrandom(&mut buf).unwrap();
 		Self {
 			head: K::null(),
 			tail: K::null(),
 			len: 0,
+			#[cfg(debug_assertions)]
 			link_version: unsafe { *(buf.as_ptr() as usize as *mut u32) },
 			mark: PhantomData,
 		}
@@ -106,7 +109,7 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
             false => {
                 // `as_mut` is okay here because we have exclusive access to the entirety
                 // of both lists.
-				let other_head = std::mem::replace(&mut other.head, K::null());
+				let other_head = replace(&mut other.head, K::null());
 
 				// 在debug版本中， 修正节点的link_list版本
 				#[cfg(debug_assertions)]
@@ -125,8 +128,8 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 					container[self.tail].next = other_head;
 					container[other_head].prev = self.tail;
 
-                    self.tail = std::mem::replace(&mut other.tail, K::null());
-                    self.len += std::mem::replace(&mut other.len, 0);
+                    self.tail = replace(&mut other.tail, K::null());
+                    self.len += replace(&mut other.len, 0);
                 }
             }
         }
@@ -146,7 +149,7 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 		}
 
 		// 从旧的链表上移除
-		old_link.remove_inner(link_key, container);
+		old_link.unlink_inner(link_key, container);
 		
 		// 插入到新的链表上
 		self.link_before_inner(link_key, anchor_key, container);
@@ -154,22 +157,23 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 
 
 	/// 将目标节点设置在在锚点节点前面， 如果anchor_key为Null， 则插入到尾部
-	/// 如果target_key或anchor_key不为Null， 必须保证在container中存在对应节点， 否则将panic
+	/// 如果anchor_key不为Null， 必须保证在container中存在对应节点， 否则将panic
+	/// link_key必须不在其他链表上
 	pub fn link_before(&mut self, link_key: K, anchor_key: K, container: &mut C) {
-		// debug版本中，检查next_key是否是当前链表中的节点, 检查prev_key是否已经在别的链表中（除了当前链表）
+		// debug版本中，检查anchor_key是否是当前链表中的节点, 检查link_key是否已经在别的链表中（除了当前链表）
 		#[cfg(debug_assertions)] 
 		if (!anchor_key.is_null() && container[anchor_key].link_version != self.link_version) || 
 			(!link_key.is_null() && !container[link_key].link_version.is_null() && (container[link_key].link_version != self.link_version)) {
 			panic!("{}",
 				pi_print_any::out_any!(
 					format, 
-					"link_before fail, prev_key={:?}, next_key={:?}, link_version={:?}, prev_version={:?}, next_version={:?}", 
+					"link_before fail, link_key={:?}, anchor_key={:?}, link_version={:?}, prev_version={:?}, next_version={:?}", 
 					link_key, anchor_key, self.link_version, container[link_key].link_version, container[link_key].link_version
 				));
 		}
 
 		// 从旧的链表上移除
-		self.remove_inner(link_key, container);
+		// self.unlink_inner(link_key, container);
 		 
 		self.link_before_inner(link_key, anchor_key, container);
 	}
@@ -199,8 +203,8 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 	// 	self.len += 1;
 	// }
 
-	/// 从链表中移除节点（在从容器中移除之前调用此方法）
-	pub fn remove(&mut self, key: K, container: &mut C){
+	/// 从链表中取消节点的连接（在从容器中移除之前调用此方法）
+	pub fn unlink(&mut self, key: K, container: &mut C){
 		#[cfg(debug_assertions)] 
 		if !key.is_null() && !container[key].link_version.is_null() && (container[key].link_version != self.link_version) {
 			panic!("{}",
@@ -211,10 +215,31 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 				));
 		}
 
-		self.remove_inner(key, container);
+		self.unlink_inner(key, container);
 		
 	}
-
+	/// 从链表头部弹出节点
+	pub fn pop_front(&mut self, container: &mut C) -> K {
+		if self.head.is_null() {
+			return self.head;
+		}
+		let head = self.head;
+		let node = &mut container[head];
+		self.head = replace(&mut node.next, K::null());
+		container[self.head].prev = K::null();
+		head
+	}
+	/// 从链表尾部弹出节点
+	pub fn pop_back(&mut self, container: &mut C) -> K {
+		if self.tail.is_null() {
+			return self.tail;
+		}
+		let tail = self.tail;
+		let node = &mut container[tail];
+		self.tail = replace(&mut node.prev, K::null());
+		container[self.tail].next = K::null();
+		tail
+	}
 	// 清理该链表上的链接关系
 	pub fn clear(&mut self, container: &mut C) {
 		loop {
@@ -245,7 +270,13 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 			mark: PhantomData,
 		}
 	}
-
+	pub fn into_iter<'a>(self, container: &'a mut C) -> IterMut<'a, K, T, C> {
+		IterMut{
+			next: self.head,
+			container: container,
+			mark: PhantomData,
+		}
+	}
 	pub fn keys<'a>(&self, container: &'a C) -> KeysIter<'a, K, T, C> {
 		KeysIter{
 			next: self.head,
@@ -270,7 +301,7 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 		if prev.is_null() {
 			self.head = link_key;
 		} else {
-			// 前节点与前节点建立连接关系
+			// 前节点与当前节点建立连接关系
 			container[prev].next = link_key;
 			
 		}
@@ -286,8 +317,8 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 		self.len += 1;
 	}
 
-	fn remove_inner(&mut self, key: K, container: &mut C){
-		let node = &mut container[key];
+	fn unlink_inner(&mut self, key: K, container: &mut C){
+		let node: &mut Node<K, T> = &mut container[key];
 		let (prev, next) = (node.prev, node.next);
 		node.prev = K::null();
 		node.next = K::null();
@@ -404,6 +435,7 @@ impl<'a, K: Null + Copy + 'static, T, C: Index<K, Output = Node<K, T>> + IndexMu
 	}
 }
 
+
 #[derive(Debug, Deref)]
 pub struct Node<K: Null + Copy, T>{
 	#[deref]
@@ -506,7 +538,7 @@ mod test {
 
 		/******************************************************************test remove******************************************************************/
 		// 移除第三个节点[k4, k1, k2]
-		link_list.remove(k3, &mut map);
+		link_list.unlink(k3, &mut map);
 		map.remove(k3);
 		assert_eq!(k4, link_list.head());
 		assert_eq!(k2, link_list.tail());
@@ -520,7 +552,7 @@ mod test {
 		assert_eq!(left, right);
 
 		// 移除第四个节点[k1, k2]
-		link_list.remove(k4, &mut map);
+		link_list.unlink(k4, &mut map);
 		map.remove(k4);
 		assert_eq!(k1, link_list.head());
 		assert_eq!(k2, link_list.tail());
@@ -533,7 +565,7 @@ mod test {
 		assert_eq!(left, right);
 
 		// 移除第二个节点[k1]
-		link_list.remove(k2, &mut map);
+		link_list.unlink(k2, &mut map);
 		map.remove(k2);
 		assert_eq!(k1, link_list.head());
 		assert_eq!(k1, link_list.tail());
@@ -545,7 +577,7 @@ mod test {
 		assert_eq!(left, right);
 
 		// 移除第一个节点[]
-		link_list.remove(k1, &mut map);
+		link_list.unlink(k1, &mut map);
 		map.remove(k1);
 		assert_eq!(DefaultKey::null(), link_list.head());
 		assert_eq!(DefaultKey::null(), link_list.tail());
