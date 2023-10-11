@@ -464,6 +464,9 @@ impl<K: Null + Copy, T> Node<K, T> {
 	pub fn prev(&self) -> K {
 		self.prev
 	}
+	pub fn take(self) -> T {
+		self.elem
+	}
 }
 
 
