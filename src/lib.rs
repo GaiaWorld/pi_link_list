@@ -221,10 +221,14 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 	/// 从链表头部弹出节点
 	pub fn pop_front(&mut self, container: &mut C) -> K {
 		if self.head.is_null() {
-			return self.head;
+			return K::null();
 		}
 		let head = self.head;
 		let node = &mut container[head];
+		#[cfg(debug_assertions)] 
+		{
+			node.link_version = u32::null();
+		}
 		self.head = replace(&mut node.next, K::null());
 		container[self.head].prev = K::null();
 		head
@@ -232,10 +236,14 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 	/// 从链表尾部弹出节点
 	pub fn pop_back(&mut self, container: &mut C) -> K {
 		if self.tail.is_null() {
-			return self.tail;
+			return K::null();
 		}
 		let tail = self.tail;
 		let node = &mut container[tail];
+		#[cfg(debug_assertions)] 
+		{
+			node.link_version = u32::null();
+		}
 		self.tail = replace(&mut node.prev, K::null());
 		container[self.tail].next = K::null();
 		tail
