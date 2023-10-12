@@ -248,7 +248,7 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 			node.link_version = u32::null();
 		}
 		self.tail = replace(&mut node.prev, K::null());
-		if !self.head.is_null() {
+		if !self.tail.is_null() {
 			container[self.tail].next = K::null();
 		}
 		tail
