@@ -229,8 +229,11 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 		{
 			node.link_version = u32::null();
 		}
+		self.head = node.next;
 		self.head = replace(&mut node.next, K::null());
-		container[self.head].prev = K::null();
+		if !self.head.is_null() {
+			container[self.head].prev = K::null();
+		}
 		head
 	}
 	/// 从链表尾部弹出节点
@@ -245,7 +248,9 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 			node.link_version = u32::null();
 		}
 		self.tail = replace(&mut node.prev, K::null());
-		container[self.tail].next = K::null();
+		if !self.head.is_null() {
+			container[self.tail].next = K::null();
+		}
 		tail
 	}
 	// 清理该链表上的链接关系
