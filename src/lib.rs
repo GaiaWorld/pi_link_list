@@ -367,6 +367,7 @@ impl<K: Null + Clone + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut
 			head: self.head,
 			tail: self.tail,
 			len: self.len,
+			#[cfg(debug_assertions)] 
 			link_version: self.link_version,
 			mark: PhantomData
 		}

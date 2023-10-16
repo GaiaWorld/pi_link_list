@@ -1,6 +1,6 @@
 [package]
 name = "pi_link_list"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["suncy <530739162@qq.com>"]
 edition = "2021"
 description = "linklist"
