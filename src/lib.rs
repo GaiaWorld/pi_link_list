@@ -135,27 +135,6 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
         }
 	}
 
-	pub fn link_before_from(&mut self, link_key: K, anchor_key: K, container: &mut C, old_link: &mut Self) {
-		// debug版本中，检查next_key是否是当前链表中的节点, 检查prev_key是否是old_link中的节点
-		#[cfg(debug_assertions)] 
-		if (!anchor_key.is_null() && container[anchor_key].link_version != self.link_version) || 
-			(!link_key.is_null() && !container[link_key].link_version.is_null() && (container[link_key].link_version != old_link.link_version)) {
-			panic!("{}",
-				pi_print_any::out_any!(
-					format, 
-					"link_before fail, prev_key={:?}, next_key={:?}, link_version={:?}, prev_version={:?}, next_version={:?}", 
-					link_key, anchor_key, self.link_version, container[link_key].link_version, container[link_key].link_version
-				));
-		}
-
-		// 从旧的链表上移除
-		old_link.unlink_inner(link_key, container);
-		
-		// 插入到新的链表上
-		self.link_before_inner(link_key, anchor_key, container);
-	}
-
-
 	/// 将目标节点设置在在锚点节点前面， 如果anchor_key为Null， 则插入到尾部
 	/// 如果anchor_key不为Null， 必须保证在container中存在对应节点， 否则将panic
 	/// link_key必须不在其他链表上
@@ -221,23 +200,35 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 	/// 从链表头部弹出节点
 	pub fn pop_front(&mut self, container: &mut C) -> K {
 		if self.head.is_null() {
-			return self.head;
+			return K::null();
 		}
 		let head = self.head;
 		let node = &mut container[head];
+		#[cfg(debug_assertions)] 
+		{
+			node.link_version = u32::null();
+		}
 		self.head = replace(&mut node.next, K::null());
-		container[self.head].prev = K::null();
+		if !self.head.is_null() {
+			container[self.head].prev = K::null();
+		}
 		head
 	}
 	/// 从链表尾部弹出节点
 	pub fn pop_back(&mut self, container: &mut C) -> K {
 		if self.tail.is_null() {
-			return self.tail;
+			return K::null();
 		}
 		let tail = self.tail;
 		let node = &mut container[tail];
+		#[cfg(debug_assertions)] 
+		{
+			node.link_version = u32::null();
+		}
 		self.tail = replace(&mut node.prev, K::null());
-		container[self.tail].next = K::null();
+		if !self.tail.is_null() {
+			container[self.tail].next = K::null();
+		}
 		tail
 	}
 	// 清理该链表上的链接关系
@@ -255,7 +246,10 @@ impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Outp
 		}
 		self.len = 0;
 	}
-
+	// 清理该链表上的链接关系
+	pub fn drain(self) -> Drain<K, T, C> {
+		Drain(self)
+	}
 	pub fn iter<'a>(&self, container: &'a C) -> Iter<'a, K, T, C> {
 		Iter{
 			next: self.head,
@@ -393,6 +387,44 @@ impl<'a, K: Null + Copy + 'static, T, C: Index<K, Output = Node<K, T>> + IndexMu
 		Some(next)
 	}
 }
+/// 链表
+#[derive(Debug)]
+pub struct Drain<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Output = Node<K, T>>>(LinkList<K, T, C>);
+
+impl<K: Null + Copy + Eq, T, C: Index<K, Output = Node<K, T>> + IndexMut<K, Output = Node<K, T>>> Drain<K, T, C> {
+	/// 取到剩余长度
+	pub fn len(&self) -> usize {
+		self.0.len()
+	}
+	/// 从头部弹出节点
+	pub fn pop_front(&mut self, container: &mut C) -> K {
+		if self.0.head.is_null() {
+			return K::null();
+		}
+		let head = self.0.head;
+		let node = &mut container[head];
+		#[cfg(debug_assertions)] 
+		{
+			node.link_version = u32::null();
+		}
+		self.0.head = replace(&mut node.next, K::null());
+		head
+	}
+	/// 从尾部弹出节点
+	pub fn pop_back(&mut self, container: &mut C) -> K {
+		if self.0.tail.is_null() {
+			return K::null();
+		}
+		let tail = self.0.tail;
+		let node = &mut container[tail];
+		#[cfg(debug_assertions)] 
+		{
+			node.link_version = u32::null();
+		}
+		self.0.tail = replace(&mut node.prev, K::null());
+		tail
+	}
+}
 
 pub struct Iter<'a, K: Null + Copy + 'static, T: 'a, C: 'a + Index<K, Output = Node<K, T>> + IndexMut<K, Output = Node<K, T>>> {
 	next: K,
@@ -464,6 +496,9 @@ impl<K: Null + Copy, T> Node<K, T> {
 
 	pub fn prev(&self) -> K {
 		self.prev
+	}
+	pub fn take(self) -> T {
+		self.elem
 	}
 }
 
